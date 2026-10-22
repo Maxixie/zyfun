@@ -9,6 +9,12 @@ export default {
   infiniteLoading: {
     noConfig: '請前往 [設置->影視配置] 配置數據',
   },
+  probe: {
+    pending: '檢測中',
+    ok: '可播放',
+    unknown: '需解析',
+    fail: '失效',
+  },
   message: {
     formatEpisodeError: '數據源格式化劇集錯誤, 確認數據源是否正常',
     notSelectAnalyze: '識別到官解數據, 但未選擇解析線路',
