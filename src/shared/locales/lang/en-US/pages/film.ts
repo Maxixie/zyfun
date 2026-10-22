@@ -9,6 +9,12 @@ export default {
   infiniteLoading: {
     noConfig: 'Please go to [Setting->Film Config] to configure the data',
   },
+  probe: {
+    pending: 'Checking',
+    ok: 'Playable',
+    unknown: 'Needs parse',
+    fail: 'Invalid',
+  },
   message: {
     formatEpisodeError: 'Data source formatting episode error, check if the data source is normal',
     notSelectAnalyze: 'Recognized official data, but no analyze selected',
