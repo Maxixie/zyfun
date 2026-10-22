@@ -98,8 +98,8 @@
         <div class="content-wrapper">
           <t-row :gutter="[16, 4]" :style="{ marginLeft: '-8px', marginRight: '-8px' }">
             <t-col
-              v-for="item in filmList"
-              :key="item.vod_id"
+              v-for="item in displayList"
+              :key="filmKey(item)"
               :md="3"
               :xl="2"
               :xxl="1"
@@ -110,6 +110,15 @@
                 <div v-if="item.vod_remarks" class="card-tag card-tag-mask">
                   <span class="card-tag-text txthide txthide1">{{ item.vod_remarks }}</span>
                 </div>
+                <t-tag
+                  v-if="searchValue && item.relateSite"
+                  class="card-probe"
+                  size="small"
+                  variant="dark"
+                  :theme="probeLabel(probeResults[filmKey(item)]).theme"
+                >
+                  {{ probeLabel(probeResults[filmKey(item)]).text }}
+                </t-tag>
                 <t-image
                   class="card-main-item"
                   :src="item.vod_pic"
@@ -199,6 +208,7 @@ import type {
 import type { IModels } from '@shared/types/db';
 import { differenceBy } from 'es-toolkit';
 import JSON5 from 'json5';
+import PQueue from 'p-queue';
 import { EllipsisIcon, HomeIcon, RootListIcon } from 'tdesign-icons-vue-next';
 import type { PopupVisibleChangeContext } from 'tdesign-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
@@ -226,8 +236,11 @@ import { usePlayerStore } from '@/store';
 import emitter from '@/utils/emitter';
 
 import DialogDetailView from './components/DialogDetail.vue';
+import type { IProbeResult } from './utils/playProbe';
+import { probeLabel, probePlayable, probeRank } from './utils/playProbe';
 
 const REC_CLASS_TAG = '__rec__';
+const PROBE_CONCURRENCY = 4;
 
 const storePlayer = usePlayerStore();
 const signalCancelers = new Map<string, AbortController>();
@@ -279,6 +292,54 @@ const active = ref({
   detailDialog: false,
   actionDialog: false,
 });
+
+const probeResults = ref<Record<string, IProbeResult>>({});
+let probeQueue = new PQueue({ concurrency: PROBE_CONCURRENCY });
+let probeController = new AbortController();
+
+const filmKey = (item: ICmsInfo & { relateSite?: IModels['site'] }) => `${item.relateSite?.id ?? '0'}-${item.vod_id}`;
+
+// While searching: playable results first (higher resolution first), then pending/unknown, then failed
+const displayList = computed(() => {
+  if (!searchValue.value) return filmList.value;
+
+  return filmList.value
+    .map((item, index) => ({ item, index, result: probeResults.value[filmKey(item)] }))
+    .sort((a, b) => {
+      const rank = probeRank(a.result) - probeRank(b.result);
+      if (rank !== 0) return rank;
+      const height = (b.result?.height ?? 0) - (a.result?.height ?? 0);
+      if (height !== 0) return height;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
+});
+
+const resetProbe = () => {
+  probeController.abort();
+  probeQueue.clear();
+  probeController = new AbortController();
+  probeQueue = new PQueue({ concurrency: PROBE_CONCURRENCY });
+  probeResults.value = {};
+};
+
+const enqueueProbe = (list: Array<ICmsInfo & { relateSite: IModels['site'] }>) => {
+  const signal = probeController.signal;
+  const queue = probeQueue;
+
+  for (const item of list) {
+    const key = filmKey(item);
+    if (probeResults.value[key]) continue;
+    probeResults.value[key] = { status: 'pending', height: 0 };
+
+    queue.add(async () => {
+      if (signal.aborted) return;
+      const hint = `${item.vod_remarks ?? ''} ${item.vod_name ?? ''}`;
+      const result = await probePlayable(item.relateSite.id, item.vod_id, hint, signal);
+      if (!signal.aborted) probeResults.value[key] = result;
+    });
+  }
+};
 
 const navList = computed(() => config.value.list.map((t) => ({ id: t.id, name: t.name })));
 const LOAD_TEXT_OPTIONS = computed(() => ({
@@ -473,6 +534,7 @@ const getCmsSearch = async (source: IModels['site']): Promise<number> => {
       (item: ICmsInfo & { relateSite: IModels['site'] }) => `${item.relateSite?.id ?? '0'}-${item.vod_id}`,
     );
     filmList.value.push(...resp.list);
+    enqueueProbe(resp.list);
   }
   if (resp.total) pagination.value.total = resp.total;
 
@@ -858,6 +920,7 @@ const handleCmsAction = async (doc: ICmsInfo) => {
 const handleSearch = async () => {
   removeAllCanceller();
   resetPagination();
+  resetProbe();
 
   filmList.value = [];
   classList.value = [];
@@ -907,6 +970,7 @@ const onClassChange = (id: string) => {
 const defaultConfig = () => {
   removeAllCanceller();
   resetPagination();
+  resetProbe();
 
   searchValue.value = '';
   emitter.emit(emitterChannel.SEARCH_RECOMMEND, { source: emitterSource.PAGE_SHOW, data: '' });
@@ -1139,6 +1203,13 @@ const handleFolderBreadcrumbClick = (item: { label: ICmsInfo['vod_name']; value:
                 height: var(--td-comp-size-xxs);
                 line-height: var(--td-line-height-mark-small);
               }
+            }
+
+            .card-probe {
+              position: absolute;
+              z-index: 2;
+              top: var(--td-comp-paddingTB-xs);
+              right: var(--td-comp-paddingLR-xs);
             }
 
             .card-main-item {
