@@ -9,6 +9,12 @@ export default {
   infiniteLoading: {
     noConfig: '请前往 [设置->影视配置] 配置数据',
   },
+  probe: {
+    pending: '检测中',
+    ok: '可播放',
+    unknown: '需解析',
+    fail: '失效',
+  },
   message: {
     formatEpisodeError: '数据源格式化剧集错误, 确认数据源是否正常',
     notSelectAnalyze: '识别到官解数据, 但未选择解析线路',
